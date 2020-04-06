@@ -66,7 +66,11 @@ def notify(covid_tracer_id):
         # period of time as multiple cases can legitimately originate from the same household or
         # organisation.
 
-        remote_addr = request.headers.get(['X-Forwarded-For'], request.remote_addr)
+        if not request.headers.getlist("X-Forwarded-For"):
+            remote_addr = request.remote_addr
+        else:
+            remote_addr = request.headers.getlist("X-Forwarded-For")[0]
+            
         user_agent = request.headers.get('User-Agent')
 
         five_mins_ago = datetime.datetime.utcnow() - datetime.timedelta(minutes=5)
