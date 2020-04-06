@@ -26,16 +26,16 @@ def cases():
         'cases': [
             {
                 'covid_tracer_id': case.covid_tracer_id,
-                'begins_on': (case.symptoms_date - BEGINS_BEFORE_SYMPTOMS).isoformat(),
-                'ends_on': (case.symptoms_date + ENDS_AFTER_SYMPTOMS).isoformat(),
+                'begins_on': (case.symptoms_onset - BEGINS_BEFORE_SYMPTOMS).isoformat(),
+                'ends_on': (case.symptoms_onset + ENDS_AFTER_SYMPTOMS).isoformat(),
             }
             for case in models.Case.query.all()
         ]
     }
 
 class NotifyForm(wtforms.Form):
-    symptoms_date = wtforms.DateField('Symptoms date', [wtforms.validators.InputRequired()])
-    tested = wtforms.BooleanField('Tested against COVID-19', default=False)
+    symptoms_onset = wtforms.DateField('Symptoms onset date', [wtforms.validators.InputRequired()])
+    is_tested = wtforms.BooleanField('Is tested against COVID-19', default=False)
     comment = wtforms.StringField('Comment', [wtforms.validators.Length(max=1000)])
 
 @app.route('/notify/<string:covid_tracer_id>', methods=['POST'])
@@ -83,8 +83,8 @@ def notify(covid_tracer_id):
         case = models.Case(
             covid_tracer_id=covid_tracer_id,
 
-            symptoms_date=form.symptoms_date.data,
-            tested=form.tested.data,
+            symptoms_onset=form.symptoms_onset.data,
+            is_tested=form.is_tested.data,
             comment=form.comment.data,
 
             remote_addr=remote_addr,

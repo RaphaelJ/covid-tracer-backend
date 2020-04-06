@@ -12,8 +12,8 @@ class Case(db.Model):
         db.DateTime(), nullable=False, index=True, default=datetime.datetime.utcnow
     )
 
-    symptoms_date = db.Column(db.Date(), nullable=False)
-    tested = db.Column(db.Boolean(), nullable=False) # Has it been tested against Covid-19?
+    symptoms_onset = db.Column(db.Date(), nullable=False)
+    is_tested = db.Column(db.Boolean(), nullable=False) # Has it been tested against Covid-19?
     comment = db.Column(db.String(1000))
 
     # Information about the notifying device.
