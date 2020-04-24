@@ -70,13 +70,13 @@ def notify(covid_tracer_id):
             remote_addr = request.remote_addr
         else:
             remote_addr = request.headers.getlist("X-Forwarded-For")[0]
-            
+
         user_agent = request.headers.get('User-Agent')
 
         five_mins_ago = datetime.datetime.utcnow() - datetime.timedelta(minutes=5)
-        prev_reporting_count = models.Case.query                            \
+        prev_reporting_count = models.Request.query                         \
             .filter_by(remote_addr=remote_addr)                             \
-            .filter(models.Case.created_at >= five_mins_ago)                \
+            .filter(models.Request.created_at >= five_mins_ago)             \
             .count()
 
         if prev_reporting_count >= 5:
@@ -90,12 +90,15 @@ def notify(covid_tracer_id):
             symptoms_onset=form.symptoms_onset.data,
             is_tested=form.is_tested.data,
             comment=form.comment.data,
+        )
 
+        req = models.Request(
             remote_addr=remote_addr,
             user_agent=user_agent,
         )
 
         models.db.session.add(case)
+        models.db.session.add(req)
         db.session.commit()
 
         return 'Created', 201
