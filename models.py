@@ -1,23 +1,25 @@
 import datetime
 
-from app import db
+from sqlalchemy.schema import Index
 
-class Case(db.Model):
-    __tablename__ = 'cases'
+from app import db, DAILY_KEY_SIZE
 
-    # The unique CovidTracer app ID.
-    covid_tracer_id = db.Column(db.String(length=8), primary_key=True)
+class DailyKey(db.Model):
+    __tablename__ = 'daily_keys'
+
+    date = db.Column(db.Date(), nullable=False, primary_key=True)
+
+    # Stores the key as an hexadecimal string.
+    key = db.Column(db.String(length=DAILY_KEY_SIZE * 2), primary_key=True, index=True)
 
     created_at = db.Column(
         db.DateTime(), nullable=False, index=True, default=datetime.datetime.utcnow
     )
 
-    symptoms_onset = db.Column(db.Date(), nullable=False)
     is_tested = db.Column(db.Boolean(), nullable=False) # Has it been tested against Covid-19?
-    comment = db.Column(db.String(1000))
 
 class Request(db.Model):
-    """Stores information required for rate limiting notifications."""
+    """Stores information, mostly for rate limiting purposes."""
 
     # Note:
     # Use a different table from `Case` so that IP addresses are not associated with the case
@@ -25,10 +27,14 @@ class Request(db.Model):
 
     __tablename__ = 'requests'
 
-    created_at = db.Column(
-        db.DateTime(), nullable=False, index=True, default=datetime.datetime.utcnow
-    )
+    id = db.Column(db.Integer, primary_key=True)
+
+    created_at = db.Column(db.DateTime(), nullable=False, default=datetime.datetime.utcnow)
 
     # Information about the notifying device.
-    remote_addr = db.Column(db.String, nullable=False, index=True)
+    remote_addr = db.Column(db.String, nullable=False)
     user_agent = db.Column(db.String, nullable=True)
+
+    comment = db.Column(db.String(1000))
+
+Index('idx_requests', Request.remote_addr, Request.created_at)

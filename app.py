@@ -7,6 +7,11 @@ from flask_sqlalchemy import SQLAlchemy
 
 import wtforms
 
+DAILY_KEY_SIZE = 256 / 8 # Bytes.
+
+INCUBATION_PERIOD = 5
+SYMPTOMS_TO_VIRUS_NEGATIVE = 11
+
 app = Flask(__name__)
 app.config.from_object(os.environ['APP_SETTINGS'])
 
@@ -15,31 +20,58 @@ db = SQLAlchemy(app)
 
 import models
 
-@app.route('/cases')
+@app.route('/cases.json')
 def cases():
-    """Returns the actives COVID-19 cases as a JSON document."""
-
-    BEGINS_BEFORE_SYMPTOMS = datetime.timedelta(days=5)
-    ENDS_AFTER_SYMPTOMS = datetime.timedelta(days=14)
+    """Returns the actives SARS-CoV-2 cases as a JSON document."""
 
     return {
         'cases': [
             {
-                'covid_tracer_id': case.covid_tracer_id,
-                'begins_on': (case.symptoms_onset - BEGINS_BEFORE_SYMPTOMS).isoformat(),
-                'ends_on': (case.symptoms_onset + ENDS_AFTER_SYMPTOMS).isoformat(),
+                'key': key.key,
+                'date': key.date.isoformat(),
+                'type': 'positive' if key.is_tested else 'symptomatic',
             }
-            for case in models.Case.query.all()
+            for key in models.DailyKey.query.all()
         ]
     }
 
+class DailyKeyForm(wtforms.Form):
+    date = wtforms.DateField('Daily key date', [wtforms.validators.InputRequired()])
+    value = wtforms.StringField('Daily key value (hexadecimal string)', [
+        wtforms.validators.InputRequired(),
+        wtforms.validators.Length(min=DAILY_KEY_SIZE * 2, max=DAILY_KEY_SIZE * 2)
+    ])
+
 class NotifyForm(wtforms.Form):
-    symptoms_onset = wtforms.DateField('Symptoms onset date', [wtforms.validators.InputRequired()])
     is_tested = wtforms.BooleanField('Is tested against COVID-19', default=False)
     comment = wtforms.StringField('Comment', [wtforms.validators.Length(max=1000)])
 
-@app.route('/notify/<string:covid_tracer_id>', methods=['POST'])
-def notify(covid_tracer_id):
+    keys = wtforms.FieldList(wtforms.FormField(DailyKeyForm))
+
+    def validate_keys(form, field):
+        if not field.data:
+            return
+
+        expected_keys_count = INCUBATION_PERIOD + SYMPTOMS_TO_VIRUS_NEGATIVE
+
+        key_values = set(key['value'] for key in field.data)
+        key_dates = sorted(key['date'] for key in field.data)
+
+        # All keys should be unique and
+        if len(key_values) != expected_keys_count:
+            raise wtforms.ValidationError(
+                'Should contain {} daily keys.'.format(expected_keys_count)
+            )
+
+        prev_date = None
+        for date in key_dates:
+            if prev_date is not None and date != prev_date + datetime.timedelta(days=1):
+                raise wtforms.ValidationError('Key dates should not contain gaps.')
+
+            prev_date = date
+
+@app.route('/notify', methods=['POST'])
+def notify():
     """
     Notifies a new positive or symptomatic case of COVID-19 and returns a `201 Created` response.
 
@@ -52,15 +84,14 @@ def notify(covid_tracer_id):
     form = NotifyForm(request.form)
     if form.validate():
         # Does not allow to override an already reported case.
-
-        already_exists = models.Case.query                  \
-            .filter_by(covid_tracer_id=covid_tracer_id)     \
+        already_exists = models.DailyKey.query                                          \
+            .filter(models.DailyKey.key.in_(key['value'] for key in form.keys.data))    \
             .count()
 
         if already_exists > 0:
             return 'Forbidden', 403
 
-        # Does not allow more than 5 requests per IP per 5 minutes.
+        # Does not allow more than 5 requests per IP per hour.
         #
         # We allow a reasonable amount of devices from the same address to notify cases in a short
         # period of time as multiple cases can legitimately originate from the same household or
@@ -73,10 +104,10 @@ def notify(covid_tracer_id):
 
         user_agent = request.headers.get('User-Agent')
 
-        five_mins_ago = datetime.datetime.utcnow() - datetime.timedelta(minutes=5)
+        one_hour_ago = datetime.datetime.utcnow() - datetime.timedelta(hours=1)
         prev_reporting_count = models.Request.query                         \
             .filter_by(remote_addr=remote_addr)                             \
-            .filter(models.Request.created_at >= five_mins_ago)             \
+            .filter(models.Request.created_at >= one_hour_ago)              \
             .count()
 
         if prev_reporting_count >= 5:
@@ -84,25 +115,26 @@ def notify(covid_tracer_id):
 
         # --
 
-        case = models.Case(
-            covid_tracer_id=covid_tracer_id,
-
-            symptoms_onset=form.symptoms_onset.data,
-            is_tested=form.is_tested.data,
-            comment=form.comment.data,
-        )
+        for key in form.keys.data:
+            db_key = models.DailyKey(
+                key=key['value'],
+                date=key['date'],
+                is_tested=form.is_tested.data,
+            )
+            models.db.session.add(db_key)
 
         req = models.Request(
             remote_addr=remote_addr,
             user_agent=user_agent,
+            comment=form.comment.data,
         )
-
-        models.db.session.add(case)
         models.db.session.add(req)
-        db.session.commit()
+
+        models.db.session.commit()
 
         return 'Created', 201
     else:
+        print(form.errors)
         return 'Bad request', 400
 
 if __name__ == '__main__':
