@@ -55,20 +55,25 @@ class NotifyForm(wtforms.Form):
         expected_keys_count = INCUBATION_PERIOD + SYMPTOMS_TO_VIRUS_NEGATIVE
 
         key_values = set(key['value'] for key in field.data)
-        key_dates = sorted(key['date'] for key in field.data)
 
-        # All keys should be unique and
+        # All keys should be unique, and should match the expected count
         if len(key_values) != expected_keys_count:
             raise wtforms.ValidationError(
                 'Should contain {} daily keys.'.format(expected_keys_count)
             )
 
+        key_dates = sorted(key['date'] for key in field.data)
+
+        # There should not be any missing date
         prev_date = None
         for date in key_dates:
             if prev_date is not None and date != prev_date + datetime.timedelta(days=1):
                 raise wtforms.ValidationError('Key dates should not contain gaps.')
 
             prev_date = date
+
+        if key_dates[0] > datetime.datetime.utcnow().date():
+            raise wtforms.ValidationError('Key dates can not all be in the future.')
 
 @app.route('/notify', methods=['POST'])
 def notify():
@@ -82,6 +87,7 @@ def notify():
     """
 
     form = NotifyForm(request.form)
+
     if form.validate():
         # Does not allow to override an already reported case.
         already_exists = models.DailyKey.query                                          \
@@ -134,7 +140,6 @@ def notify():
 
         return 'Created', 201
     else:
-        print(form.errors)
         return 'Bad request', 400
 
 if __name__ == '__main__':
