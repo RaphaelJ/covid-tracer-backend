@@ -29,6 +29,8 @@ DAILY_KEY_SIZE = 256 / 8 # Bytes.
 INCUBATION_PERIOD = 5
 SYMPTOMS_TO_VIRUS_NEGATIVE = 11
 
+INFECTION_PERIOD = INCUBATION_PERIOD + SYMPTOMS_TO_VIRUS_NEGATIVE
+
 app = Flask(__name__)
 app.config.from_object(os.environ['APP_SETTINGS'])
 
@@ -41,6 +43,28 @@ import models
 def cases():
     """Returns the actives SARS-CoV-2 cases as a JSON document."""
 
+    now = datetime.datetime.utcnow()
+    today = now.date()
+
+    # Does not return keys that are older than a typical infection period.
+    min_date = today - datetime.timedelta(days=INFECTION_PERIOD)
+
+    # Only return keys from the past days to avoid impersonation
+    max_date = today
+
+    # Releases new keys only twice a day to avoid keys being grouped by the submitting user.
+    if now.time().hour >= 12:
+        min_creation_at = datetime.datetime.combine(today, datetime.time(hour=12))
+    else:
+        min_creation_at = datetime.datetime.combine(today, datetime.time(hour=0))
+
+    keys = models.DailyKey.query                                                \
+        .filter(models.DailyKey.date > min_date)                                \
+        .filter(models.DailyKey.date < max_date)                                \
+        .filter(models.DailyKey.created_at <= min_creation_at)                  \
+        .order_by(models.DailyKey.key)                                          \
+        .all()
+
     return {
         'cases': [
             {
@@ -48,7 +72,7 @@ def cases():
                 'date': key.date.isoformat(),
                 'type': 'positive' if key.is_tested else 'symptomatic',
             }
-            for key in models.DailyKey.query.all()
+            for key in keys
         ]
     }
 
